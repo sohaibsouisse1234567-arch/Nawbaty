@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>نوبتي - حجز موعد</title>
+
+<style>
+body{
+  margin:0;
+  padding:20px;
+  font-family: Arial, sans-serif;
+  background:url('background.png') no-repeat center center fixed;
+  background-size:cover;
+  min-height:100vh;
+  position:relative;
+}
+
+/* طبقة شفافية فوق الخلفية */
+body::before{
+  content:"";
+  position:absolute;
+  top:0;left:0;
+  width:100%;height:100%;
+  background:rgba(255,255,255,0.85);
+  z-index:0;
+}
+
+*{position:relative;z-index:1}
+
+h2{text-align:center;color:#1e3a8a}
+
+/* وميض */
+@keyframes blink{
+  0%{opacity:1}
+  50%{opacity:0}
+  100%{opacity:1}
+}
+
+#infoMessage{
+  text-align:center;
+  font-weight:bold;
+  color:red;
+  margin:10px 0;
+  animation:blink 1s infinite;
+}
+
+#currentDate,#currentTime{
+  text-align:center;
+  color:#1e40af;
+  font-size:14px;
+}
+
+input{
+  width:100%;
+  padding:10px;
+  margin:6px 0;
+  border-radius:6px;
+  border:1px solid #aaa;
+  font-size:15px;
+}
+
+.slot{
+  background:#eef2ff;
+  padding:10px;
+  margin:6px 0;
+  border-radius:6px;
+  cursor:pointer;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.slot.booked{
+  background:#c7f9cc;
+}
+
+.slot button{
+  background:red;
+  color:white;
+  border:none;
+  border-radius:4px;
+  padding:4px 8px;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:15px;
+  font-size:14px;
+}
+
+th,td{
+  border:1px solid #aaa;
+  padding:6px;
+  text-align:center;
+}
+
+th{
+  background:#1e40af;
+  color:white;
+}
+
+#doctorSection{display:none}
+</style>
+</head>
+
+<body>
+
+<h2>نوبتي - احجز موعدك</h2>
+
+<div id="infoMessage"></div>
+<div id="currentDate"></div>
+<div id="currentTime"></div>
+
+<input id="firstName" placeholder="الاسم">
+<input id="lastName" placeholder="اللقب">
+<input id="phone" placeholder="رقم الهاتف">
+
+<h3>المواعيد</h3>
+<div id="slots"></div>
+
+<h3>للطبيب</h3>
+<input id="doctorCode" placeholder="كود الطبيب">
+
+<div id="doctorSection">
+<table>
+<thead>
+<tr><th>الوقت</th><th>الاسم</th><th>اللقب</th><th>الهاتف</th></tr>
+</thead>
+<tbody id="doctorTable"></tbody>
+</table>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+// ====== إعداد Firebase ======
+const firebaseConfig = {
+  apiKey: "API_KEY",
+  authDomain: "PROJECT_ID.firebaseapp.com",
+  databaseURL: "https://PROJECT_ID-default-rtdb.firebaseio.com",
+  projectId: "PROJECT_ID",
+  storageBucket: "PROJECT_ID.appspot.com",
+  messagingSenderId: "SENDER_ID",
+  appId: "APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
+// ====== التاريخ والوقت ======
+let today=new Date();
+let currentDate=today.toISOString().split("T")[0];
+
+const infoMessage=document.getElementById("infoMessage");
+const currentDateDiv=document.getElementById("currentDate");
+const currentTimeDiv=document.getElementById("currentTime");
+
+currentDateDiv.textContent="تاريخ اليوم: "+currentDate;
+
+// ====== تحديث الوقت ومنع الحجز بين 16-18 ======
+function updateTime(){
+  const now=new Date();
+  currentTimeDiv.textContent=
+    "الساعة الآن: "+
+    now.getHours().toString().padStart(2,"0")+":"+
+    now.getMinutes().toString().padStart(2,"0")+":"+
+    now.getSeconds().toString().padStart(2,"0");
+
+  const hour = now.getHours();
+  
+  if(hour >=16 && hour <18){
+    infoMessage.textContent = "هام: الوقت الحالي غير متاح للحجز، احجز لاحقًا";
+  } else if(hour <16){
+    const diff = new Date();
+    diff.setHours(16,0,0,0);
+    let ms = diff - now;
+    let h=Math.floor(ms/1000/60/60);
+    let m=Math.floor(ms/1000/60%60);
+    let s=Math.floor(ms/1000%60);
+    infoMessage.textContent = "هام: الوقت المتبقي قبل فترة الحجز الممنوعة: "+h+" س "+m+" د "+s+" ث";
+  } else {
+    infoMessage.textContent = "هام: الحجز متاح الآن";
+  }
+}
+setInterval(updateTime,1000);
+updateTime();
+
+// ====== إنشاء أوقات المواعيد ======
+function generateSlots(start,end){
+  let arr=[];
+  for(let h=start;h<end;h++){
+    for(let m of [0,15,30,45]){
+      arr.push(h.toString().padStart(2,"0")+":"+m.toString().padStart(2,"0"));
+    }
+  }
+  return arr;
+}
+const slots=[...generateSlots(8,12),...generateSlots(13,16)];
+
+// ====== التعامل مع Firebase ======
+let bookings = []; // سيملأ تلقائيًا من Firebase
+
+const bookingsRef = firebase.database().ref('bookings');
+
+// الاستماع لأي تغييرات في الحجوزات
+bookingsRef.on('value', snapshot => {
+  bookings = [];
+  snapshot.forEach(child => {
+    bookings.push({...child.val(), id: child.key});
+  });
+  render();
+  renderDoctor();
+});
+
+// ====== عرض المواعيد ======
+function render(){
+  const c=document.getElementById("slots");
+  c.innerHTML="";
+  slots.forEach(t=>{
+    const b=bookings.find(x=>x.time===t&&x.date===currentDate);
+    let d=document.createElement("div");
+    d.className="slot";
+    if(b){
+      d.classList.add("booked");
+      d.innerHTML=b.first+" - محجوز <button>إلغاء</button>";
+      d.querySelector("button").onclick=()=>{
+        let p=prompt("رقم الهاتف");
+        if(p===b.phone){
+          firebase.database().ref('bookings/'+b.id).remove();
+        }
+      };
+    }else{
+      d.textContent=t;
+      d.onclick=()=>{
+        const nowHour = new Date().getHours();
+        if(nowHour >=16 && nowHour <18){
+          alert("الحجز غير مسموح الآن، احجز لاحقًا");
+          return;
+        }
+        let f=firstName.value,l=lastName.value,p=phone.value;
+        if(!f||!l||!p){alert("أكمل البيانات");return}
+        bookingsRef.push({
+          time:t, first:f, last:l, phone:p, date:currentDate
+        });
+        firstName.value=lastName.value=phone.value="";
+      };
+    }
+    c.appendChild(d);
+  });
+}
+
+// ====== جدول الطبيب ======
+const codeInput=document.getElementById("doctorCode");
+const doctorSection=document.getElementById("doctorSection");
+const doctorTable=document.getElementById("doctorTable");
+
+codeInput.oninput=()=>{
+  doctorSection.style.display=codeInput.value==="2026"?"block":"none";
+  renderDoctor();
+};
+
+function renderDoctor(){
+  doctorTable.innerHTML="";
+  bookings.filter(b=>b.date===currentDate)
+  .sort((a,b)=>a.time.localeCompare(b.time))
+  .forEach(b=>{
+    doctorTable.innerHTML+=
+      `<tr><td>${b.time}</td><td>${b.first}</td><td>${b.last}</td><td>${b.phone}</td></tr>`;
+  });
+}
+</script>
+
+</body>
+</html>
