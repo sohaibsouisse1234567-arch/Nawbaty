@@ -15,7 +15,6 @@ body{
   position:relative;
 }
 
-/* طبقة شفافية فوق الخلفية */
 body::before{
   content:"";
   position:absolute;
@@ -29,7 +28,6 @@ body::before{
 
 h2{text-align:center;color:#1e3a8a}
 
-/* وميض */
 @keyframes blink{
   0%{opacity:1}
   50%{opacity:0}
@@ -159,7 +157,6 @@ const currentTimeDiv=document.getElementById("currentTime");
 
 currentDateDiv.textContent="تاريخ اليوم: "+currentDate;
 
-// ====== تحديث الوقت ومنع الحجز بين 16-18 ======
 function updateTime(){
   const now=new Date();
   currentTimeDiv.textContent=
@@ -172,14 +169,6 @@ function updateTime(){
   
   if(hour >=16 && hour <18){
     infoMessage.textContent = "هام: الوقت الحالي غير متاح للحجز، احجز لاحقًا";
-  } else if(hour <16){
-    const diff = new Date();
-    diff.setHours(16,0,0,0);
-    let ms = diff - now;
-    let h=Math.floor(ms/1000/60/60);
-    let m=Math.floor(ms/1000/60%60);
-    let s=Math.floor(ms/1000%60);
-    infoMessage.textContent = "هام: الوقت المتبقي قبل فترة الحجز الممنوعة: "+h+" س "+m+" د "+s+" ث";
   } else {
     infoMessage.textContent = "هام: الحجز متاح الآن";
   }
@@ -200,8 +189,7 @@ function generateSlots(start,end){
 const slots=[...generateSlots(8,12),...generateSlots(13,16)];
 
 // ====== التعامل مع Firebase ======
-let bookings = []; // سيملأ تلقائيًا من Firebase
-
+let bookings = [];
 const bookingsRef = firebase.database().ref('bookings');
 
 // الاستماع لأي تغييرات في الحجوزات
@@ -218,34 +206,41 @@ bookingsRef.on('value', snapshot => {
 function render(){
   const c=document.getElementById("slots");
   c.innerHTML="";
+  const nowHour = new Date().getHours();
+
   slots.forEach(t=>{
     const b=bookings.find(x=>x.time===t&&x.date===currentDate);
     let d=document.createElement("div");
     d.className="slot";
-    if(b){
-      d.classList.add("booked");
-      d.innerHTML=b.first+" - محجوز <button>إلغاء</button>";
-      d.querySelector("button").onclick=()=>{
-        let p=prompt("رقم الهاتف");
-        if(p===b.phone){
-          firebase.database().ref('bookings/'+b.id).remove();
-        }
-      };
-    }else{
-      d.textContent=t;
-      d.onclick=()=>{
-        const nowHour = new Date().getHours();
-        if(nowHour >=16 && nowHour <18){
-          alert("الحجز غير مسموح الآن، احجز لاحقًا");
-          return;
-        }
-        let f=firstName.value,l=lastName.value,p=phone.value;
-        if(!f||!l||!p){alert("أكمل البيانات");return}
-        bookingsRef.push({
-          time:t, first:f, last:l, phone:p, date:currentDate
-        });
-        firstName.value=lastName.value=phone.value="";
-      };
+
+    // الوقت غير متاح للحجز
+    if(nowHour >=16 && nowHour <18){
+      d.textContent = t + " - غير متاح الآن";
+      d.style.background = "#f8d7da";
+      d.style.cursor = "not-allowed";
+    }
+    // الوقت متاح
+    else{
+      if(b){
+        d.classList.add("booked");
+        d.innerHTML=b.first+" - محجوز <button>إلغاء</button>";
+        d.querySelector("button").onclick=()=>{
+          let p=prompt("رقم الهاتف");
+          if(p===b.phone){
+            firebase.database().ref('bookings/'+b.id).remove();
+          }
+        };
+      } else {
+        d.textContent=t;
+        d.onclick=()=>{
+          let f=firstName.value,l=lastName.value,p=phone.value;
+          if(!f||!l||!p){alert("أكمل البيانات");return}
+          bookingsRef.push({
+            time:t, first:f, last:l, phone:p, date:currentDate
+          });
+          firstName.value=lastName.value=phone.value="";
+        };
+      }
     }
     c.appendChild(d);
   });
