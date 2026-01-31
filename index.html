@@ -1,137 +1,7 @@
-<!DOCTYPE html>
-<html lang="ar">
-<head>
-<meta charset="UTF-8">
-<title>نوبتي - حجز موعد</title>
-
-<style>
-body{
-  margin:0;
-  padding:20px;
-  font-family: Arial, sans-serif;
-  background:url('background.png') no-repeat center center fixed;
-  background-size:cover;
-  min-height:100vh;
-  position:relative;
-}
-
-/* طبقة شفافية فوق الخلفية */
-body::before{
-  content:"";
-  position:absolute;
-  top:0;left:0;
-  width:100%;height:100%;
-  background:rgba(255,255,255,0.85);
-  z-index:0;
-}
-
-*{position:relative;z-index:1}
-
-h2{text-align:center;color:#1e3a8a}
-
-/* وميض */
-@keyframes blink{
-  0%{opacity:1}
-  50%{opacity:0}
-  100%{opacity:1}
-}
-
-#infoMessage{
-  text-align:center;
-  font-weight:bold;
-  color:red;
-  margin:10px 0;
-  animation:blink 1s infinite;
-}
-
-#currentDate,#currentTime{
-  text-align:center;
-  color:#1e40af;
-  font-size:14px;
-}
-
-input{
-  width:100%;
-  padding:10px;
-  margin:6px 0;
-  border-radius:6px;
-  border:1px solid #aaa;
-  font-size:15px;
-}
-
-.slot{
-  background:#eef2ff;
-  padding:10px;
-  margin:6px 0;
-  border-radius:6px;
-  cursor:pointer;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
-
-.slot.booked{
-  background:#c7f9cc;
-}
-
-.slot button{
-  background:red;
-  color:white;
-  border:none;
-  border-radius:4px;
-  padding:4px 8px;
-}
-
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:15px;
-  font-size:14px;
-}
-
-th,td{
-  border:1px solid #aaa;
-  padding:6px;
-  text-align:center;
-}
-
-th{
-  background:#1e40af;
-  color:white;
-}
-
-#doctorSection{display:none}
-</style>
-</head>
-
-<body>
-
-<h2>نوبتي - احجز موعدك</h2>
-
-<div id="infoMessage"></div>
-<div id="currentDate"></div>
-<div id="currentTime"></div>
-
-<input id="firstName" placeholder="الاسم">
-<input id="lastName" placeholder="اللقب">
-<input id="phone" placeholder="رقم الهاتف">
-
-<h3>المواعيد</h3>
-<div id="slots"></div>
-
-<h3>للطبيب</h3>
-<input id="doctorCode" placeholder="كود الطبيب">
-
-<div id="doctorSection">
-<table>
-<thead>
-<tr><th>الوقت</th><th>الاسم</th><th>اللقب</th><th>الهاتف</th></tr>
-</thead>
-<tbody id="doctorTable"></tbody>
-</table>
-</div>
-
 <script>
+const DASHBOARD_GET="https://your-dashboard-link.com/getAppointments";
+const DASHBOARD_ADD="https://your-dashboard-link.com/addAppointment";
+
 /* التاريخ والوقت */
 let today=new Date();
 let currentDate=today.toISOString().split("T")[0];
@@ -180,10 +50,36 @@ function generateSlots(start,end){
 }
 
 const slots=[...generateSlots(8,12),...generateSlots(13,16)];
-let bookings=JSON.parse(localStorage.getItem("bookings")||"[]");
+let bookings=[]; // سيتم جلبها من Dashboard
 
-function save(){localStorage.setItem("bookings",JSON.stringify(bookings))}
+/* جلب الحجوزات من Dashboard */
+function fetchBookings(){
+  fetch(DASHBOARD_GET)
+    .then(res=>res.json())
+    .then(data=>{
+      bookings=data.filter(b=>b.date===currentDate);
+      render();
+      renderDoctor();
+    })
+    .catch(err=>console.log("Error fetching bookings:",err));
+}
 
+/* إضافة حجز للـ Dashboard */
+function addBookingToDashboard(newBooking){
+  fetch(DASHBOARD_ADD,{
+    method:"POST",
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(newBooking)
+  })
+  .then(res=>res.json())
+  .then(data=>{
+    console.log("Booking added:",data);
+    fetchBookings(); // إعادة جلب البيانات بعد الإضافة
+  })
+  .catch(err=>console.log("Error adding booking:",err));
+}
+
+/* عرض المواعيد */
 function render(){
   const c=document.getElementById("slots");
   c.innerHTML="";
@@ -197,8 +93,9 @@ function render(){
       d.querySelector("button").onclick=()=>{
         let p=prompt("رقم الهاتف");
         if(p===b.phone){
+          // هنا يمكن إضافة DELETE للـ Dashboard إذا كان مدعوم
           bookings=bookings.filter(x=>x!==b);
-          save();render();renderDoctor();
+          render();renderDoctor();
         }
       };
     }else{
@@ -206,15 +103,14 @@ function render(){
       d.onclick=()=>{
         let f=firstName.value,l=lastName.value,p=phone.value;
         if(!f||!l||!p){alert("أكمل البيانات");return}
-        bookings.push({time:t,first:f,last:l,phone:p,date:currentDate});
-        save();render();renderDoctor();
+        const newBooking={time:t,first:f,last:l,phone:p,date:currentDate};
+        addBookingToDashboard(newBooking);
         firstName.value=lastName.value=phone.value="";
       };
     }
     c.appendChild(d);
   });
 }
-render();
 
 /* الطبيب */
 const codeInput=document.getElementById("doctorCode");
@@ -235,7 +131,7 @@ function renderDoctor(){
       `<tr><td>${b.time}</td><td>${b.first}</td><td>${b.last}</td><td>${b.phone}</td></tr>`;
   });
 }
-</script>
 
-</body>
-</html>
+/* أول مرة جلب البيانات */
+fetchBookings();
+</script>
